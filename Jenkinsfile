@@ -32,12 +32,13 @@ pipeline {
             }
         }
 
-        stage('Deploy') {
+        stage('Deploy to Localhost (EC2)') {
             steps {
                 sh '''
+                cd $WORKSPACE
                 pkill -f app.py || true
                 . venv/bin/activate
-                nohup python3 app.py > app.log 2>&1 &
+                nohup python app.py > app.log 2>&1 &
                 '''
             }
         }
