@@ -1,51 +1,79 @@
 pipeline {
     agent any
-    
+
     environment {
-        APP_NAME = "flask-app"
-        CONTAINER_NAME = "flask-${BUILD_NUMBER}"
+        PORT = "5000"
     }
-    
+
     stages {
-        stage('📦 Checkout') {
-            steps { checkout scm }
-        }
-        
-        stage('🚀 Deploy') {
+
+        stage('Checkout') {
             steps {
-                script {
-                    // Let Docker assign ANY available port
-                    sh '''
-                        docker stop ${CONTAINER_NAME} 2>/dev/null || true
-                        docker rm ${CONTAINER_NAME} 2>/dev/null || true
-                        
-                        # Run without -p flag, let Docker choose
-                        docker run -d --name ${CONTAINER_NAME} ${APP_NAME}:${BUILD_NUMBER}
-                    '''
-                    
-                    // Get the assigned port
-                    env.ASSIGNED_PORT = sh(script: '''
-                        docker port ${CONTAINER_NAME} 5000 | cut -d: -f2
-                    ''', returnStdout: true).trim()
-                    
-                    echo "✅ Deployed! Docker assigned port: ${ASSIGNED_PORT}"
-                }
-                sleep 10
+                echo "Pulling code from GitHub"
+                git branch: 'main',
+                    url: 'https://github.com/bharathrm555/Jenkins_HVRD.git'
             }
         }
-        
-        stage('✅ Verify') {
+
+        stage('Build') {
             steps {
+                echo "Installing dependencies"
                 sh '''
-                    echo "Container info:"
-                    docker ps | grep ${CONTAINER_NAME}
-                    echo ""
-                    echo "Assigned port: ${ASSIGNED_PORT}"
-                    echo ""
-                    echo "Testing via container network:"
-                    docker exec ${CONTAINER_NAME} curl -s http://localhost:5000/health || echo "Testing..."
+                python3 -m venv venv
+                . venv/bin/activate
+                pip install --upgrade pip
+                pip install -r requirements.txt
                 '''
             }
+        }
+
+        stage('Test') {
+            steps {
+                echo "Running tests"
+                sh '''
+                . venv/bin/activate
+                pytest
+                '''
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo "Deploying application to localhost"
+                sh '''
+                pkill -f app.py || true
+                . venv/bin/activate
+                nohup python3 app.py > app.log 2>&1 &
+                '''
+                echo "Application deployed at http://localhost:${PORT}"
+            }
+        }
+    }
+
+    post {
+        success {
+            emailext(
+                subject: "SUCCESS: Jenkins CI/CD run",
+                body: """
+                    Build succeeded!
+                    Job: ${env.JOB_NAME}
+                    Build number: ${env.BUILD_NUMBER}
+                    Deployed to localhost:${PORT}
+                """,
+                to: "bharathrm555@example.com"
+            )
+        }
+        failure {
+            emailext(
+                subject: "FAILED: Jenkins CI/CD run",
+                body: """
+                    Build failed!
+                    Job: ${env.JOB_NAME}
+                    Build number: ${env.BUILD_NUMBER}
+                    Check Jenkins logs for details.
+                """,
+                to: "bharathrm555@example.com"
+            )
         }
     }
 }
