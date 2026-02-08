@@ -2,7 +2,7 @@ pipeline {
     agent { label 'ec2' }
 
     environment {
-        VENV_DIR = "venv"
+        APP_PORT = 5000
     }
 
     stages {
@@ -16,10 +16,8 @@ pipeline {
         stage('Build') {
             steps {
                 sh '''
-                python3 -m venv $VENV_DIR
-                . $VENV_DIR/bin/activate
-                pip install --upgrade pip
-                pip install -r requirements.txt
+                python3 -m pip install --upgrade pip
+                pip3 install -r requirements.txt
                 '''
             }
         }
@@ -27,25 +25,26 @@ pipeline {
         stage('Test') {
             steps {
                 sh '''
-                . $VENV_DIR/bin/activate
-                pytest test_app.py
+                pytest -v
                 '''
             }
         }
 
-        stage('Deploy (Local EC2)') {
+        stage('Deploy') {
             steps {
                 sh '''
-                cd $WORKSPACE
+                echo "Stopping old Flask/Gunicorn process (if any)..."
+                pkill -f "gunicorn.*app:app" || true
 
-                # Kill old gunicorn if running
-                pkill -f gunicorn || true
+                echo "Starting Flask app via Gunicorn..."
+                nohup gunicorn \
+                  --bind 0.0.0.0:${APP_PORT} \
+                  --workers 2 \
+                  app:app \
+                  > app.log 2>&1 &
 
-                . $VENV_DIR/bin/activate
-
-                # Start app in background
-                nohup gunicorn --bind 0.0.0.0:5000 app:app > app.log 2>&1 &
                 sleep 5
+                ps -ef | grep gunicorn | grep -v grep
                 '''
             }
         }
@@ -53,10 +52,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Deployed successfully to EC2 localhost:5000"
+            echo "Deployment successful 🚀"
         }
         failure {
-            echo "❌ Pipeline failed"
+            echo "Deployment failed ❌"
         }
     }
 }
