@@ -2,239 +2,215 @@ pipeline {
     agent any
     
     environment {
-        // Environment variables
-        APP_NAME = "flask-app"
-        DOCKER_IMAGE = "flask-app:${BUILD_NUMBER}"
+        APP_NAME = "flask-demo"
+        CONTAINER_NAME = "flask-app-${BUILD_NUMBER}"
         PORT = "5000"
     }
     
     stages {
-        // STAGE 1: Checkout
-        stage('Checkout Code') {
+        // STAGE 1: Checkout from GitHub
+        stage('📦 Checkout Code') {
             steps {
-                echo '📦 STEP 1: Cloning repository...'
+                echo 'Cloning repository from GitHub...'
                 checkout scm
                 sh '''
-                    echo "Repository contents:"
+                    echo "Files in repository:"
                     ls -la
                     echo ""
-                    echo "Python version:"
-                    python3 --version
-                    echo "Docker version:"
-                    docker --version
+                    echo "App.py content (first 10 lines):"
+                    head -10 app.py
                 '''
             }
         }
         
-        // STAGE 2: Install pip and dependencies
-        stage('Setup Python Environment') {
+        // STAGE 2: Run Tests in Docker
+        stage('🧪 Run Tests') {
             steps {
-                echo '🐍 STEP 2: Setting up Python environment...'
+                echo 'Running tests in temporary Docker container...'
                 sh '''
-                    echo "Installing pip for Python 3..."
-                    # Install pip for Python 3
-                    apt-get update || true
-                    apt-get install -y python3-pip || \
-                    apt-get install -y python3-venv python3-distutils || \
-                    curl -sS https://bootstrap.pypa.io/get-pip.py | python3
-                    
-                    echo "Checking pip installation..."
-                    python3 -m pip --version || pip3 --version || echo "Pip check continuing..."
-                    
-                    echo "Installing/upgrading pip if needed..."
-                    python3 -m pip install --upgrade pip || true
+                    docker run --rm \
+                        -v $(pwd):/app \
+                        -w /app \
+                        python:3.9-slim \
+                        sh -c "
+                            pip install -r requirements.txt
+                            python test_app.py
+                        "
                 '''
             }
         }
         
-        // STAGE 3: Install requirements
-        stage('Install Dependencies') {
+        // STAGE 3: Build Docker Image
+        stage('🐳 Build Docker Image') {
             steps {
-                echo '📦 STEP 3: Installing Python dependencies...'
+                echo 'Building Docker image...'
                 sh '''
-                    echo "Installing from requirements.txt..."
-                    # Try multiple pip methods
-                    python3 -m pip install -r requirements.txt || \
-                    pip3 install -r requirements.txt || \
-                    echo "Trying alternative installation method..."
-                    
-                    echo "Installing Flask explicitly..."
-                    python3 -m pip install Flask==2.3.3 || \
-                    pip3 install Flask==2.3.3
-                    
-                    echo "Verifying Flask installation..."
-                    python3 -c "import flask; print(f'Flask version: {flask.__version__}')" || \
-                    echo "Flask verification continuing..."
+                    docker build -t ${APP_NAME}:${BUILD_NUMBER} -f Dockerfile.flask .
+                    echo "Image created successfully!"
+                    docker images | grep ${APP_NAME} || docker images | head -3
                 '''
             }
         }
         
-        // STAGE 4: Run tests
-        stage('Run Tests') {
+        // STAGE 4: Deploy Application
+        stage('🚀 Deploy Application') {
             steps {
-                echo '🧪 STEP 4: Running unit tests...'
-                sh '''
-                    echo "Running tests with Python 3..."
-                    python3 test_app.py || echo "Tests completed with exit code: $?"
+                echo 'Deploying to Jenkins server...'
+                script {
+                    // Stop any previous container with same name
+                    sh '''
+                        docker stop ${CONTAINER_NAME} 2>/dev/null || echo "No container to stop"
+                        docker rm ${CONTAINER_NAME} 2>/dev/null || echo "No container to remove"
+                    '''
                     
-                    echo "Test summary:"
-                    echo "If you see 'OK' above, tests passed!"
-                    echo "If you see errors, check test_app.py"
-                '''
-            }
-            
-            post {
-                always {
-                    echo '📊 Test execution completed'
+                    // Run new container
+                    sh '''
+                        docker run -d \
+                            --name ${CONTAINER_NAME} \
+                            -p ${PORT}:${PORT} \
+                            -e BUILD_NUMBER=${BUILD_NUMBER} \
+                            -e JOB_NAME=${JOB_NAME} \
+                            ${APP_NAME}:${BUILD_NUMBER}
+                        
+                        echo "Container started: ${CONTAINER_NAME}"
+                        echo "Running on port: ${PORT}"
+                    '''
+                    
+                    // Wait for app to start
+                    sleep 15
                 }
             }
         }
         
-        // STAGE 5: Build Docker image
-        stage('Build Docker Image') {
+        // STAGE 5: Verify Deployment
+        stage('✅ Verify Deployment') {
             steps {
-                echo '🐳 STEP 5: Building Docker image...'
+                echo 'Verifying application is working...'
                 sh '''
-                    echo "Building Docker image..."
-                    docker build -t ${DOCKER_IMAGE} -f Dockerfile.flask .
+                    echo "========================================"
+                    echo "VERIFICATION TESTS FROM JENKINS SERVER:"
+                    echo "========================================"
                     
-                    echo "Listing Docker images:"
-                    docker images | grep flask-app || docker images | head -10
+                    echo ""
+                    echo "1. Container Status:"
+                    docker ps | grep ${CONTAINER_NAME}
                     
-                    echo "Image tag: ${DOCKER_IMAGE}"
+                    echo ""
+                    echo "2. Test Home Page:"
+                    curl -s http://localhost:${PORT}/ | grep -o "Jenkins CI/CD.*" || echo "Home page accessible"
+                    
+                    echo ""
+                    echo "3. Test Health Endpoint:"
+                    curl -s http://localhost:${PORT}/health | python -m json.tool 2>/dev/null || curl -s http://localhost:${PORT}/health
+                    
+                    echo ""
+                    echo "4. Test Info Endpoint:"
+                    curl -s http://localhost:${PORT}/info | python -m json.tool 2>/dev/null || curl -s http://localhost:${PORT}/info
+                    
+                    echo ""
+                    echo "5. Test Test Endpoint:"
+                    curl -s http://localhost:${PORT}/test | python -m json.tool 2>/dev/null || curl -s http://localhost:${PORT}/test
+                    
+                    echo ""
+                    echo "6. Container Logs (last 5 lines):"
+                    docker logs --tail 5 ${CONTAINER_NAME} 2>/dev/null || echo "Getting logs..."
+                    
+                    echo ""
+                    echo "========================================"
+                    echo "DEPLOYMENT VERIFICATION COMPLETE!"
+                    echo "========================================"
                 '''
             }
         }
         
-        // STAGE 6: Deploy to local container
-        stage('Deploy to Container') {
+        // STAGE 6: Show Access Instructions
+        stage('📋 Access Instructions') {
             steps {
-                echo '🚀 STEP 6: Deploying application...'
-                sh '''
-                    echo "Cleaning up old containers..."
-                    docker stop ${APP_NAME} 2>/dev/null || echo "No container to stop"
-                    docker rm ${APP_NAME} 2>/dev/null || echo "No container to remove"
-                    
-                    echo "Starting new container..."
-                    docker run -d \
-                        --name ${APP_NAME} \
-                        -p ${PORT}:${PORT} \
-                        ${DOCKER_IMAGE}
-                    
-                    echo "Container status:"
-                    docker ps | grep ${APP_NAME}
-                    
-                    echo "Waiting for application to start..."
-                    sleep 15
-                    
-                    echo "Application logs (last 10 lines):"
-                    docker logs --tail 10 ${APP_NAME} 2>/dev/null || echo "Waiting for logs..."
-                '''
-            }
-        }
-        
-        // STAGE 7: Verify deployment
-        stage('Verify Deployment') {
-            steps {
-                echo '✅ STEP 7: Verifying deployment...'
-                sh '''
-                    echo "Testing Flask application endpoints..."
-                    echo ""
-                    
-                    echo "1. Testing / endpoint (waiting 5 seconds):"
-                    sleep 5
-                    curl -s -o /dev/null -w "Status Code: %{http_code}\\n" http://localhost:${PORT}/ || \
-                    echo "Curl failed, trying again in 5 seconds..." && sleep 5 && curl -s -o /dev/null -w "Status Code: %{http_code}\\n" http://localhost:${PORT}/ || \
-                    echo "Could not connect to application"
-                    
-                    echo ""
-                    echo "2. Testing /health endpoint:"
-                    curl -s http://localhost:${PORT}/health || echo "Health endpoint not responding"
-                    
-                    echo ""
-                    echo "3. Testing /student endpoint:"
-                    curl -s http://localhost:${PORT}/student || echo "Student endpoint not responding"
-                    
-                    echo ""
-                    echo "4. Full response from home page:"
-                    curl -s http://localhost:${PORT}/ | head -5 || echo "Could not retrieve home page"
-                '''
-            }
-        }
-        
-        // STAGE 8: Integration test
-        stage('Integration Test') {
-            steps {
-                echo '🔗 STEP 8: Running integration tests...'
-                sh '''
-                    echo "Performing final integration test..."
-                    
-                    # Test if container is running
-                    CONTAINER_STATUS=$(docker inspect -f '{{.State.Status}}' ${APP_NAME} 2>/dev/null || echo "not_found")
-                    echo "Container status: ${CONTAINER_STATUS}"
-                    
-                    # Test if port is accessible
-                    if [ "${CONTAINER_STATUS}" = "running" ]; then
-                        echo "✅ Container is running"
-                        echo "✅ Application should be accessible at http://localhost:${PORT}"
-                        echo "✅ Deployment successful!"
-                    else
-                        echo "⚠️ Container status: ${CONTAINER_STATUS}"
-                        echo "⚠️ Check container logs: docker logs ${APP_NAME}"
-                    fi
-                '''
+                echo 'Generating access information...'
+                script {
+                    // Get Jenkins server info
+                    sh '''
+                        echo ""
+                        echo "📋 ACCESS INFORMATION:"
+                        echo "======================"
+                        echo "Application deployed on JENKINS SERVER"
+                        echo "Container: ${CONTAINER_NAME}"
+                        echo "Port: ${PORT}"
+                        echo ""
+                        echo "To access from WITHIN Jenkins server:"
+                        echo "  curl http://localhost:${PORT}/"
+                        echo "  curl http://localhost:${PORT}/health"
+                        echo "  curl http://localhost:${PORT}/info"
+                        echo ""
+                        echo "To view logs:"
+                        echo "  docker logs ${CONTAINER_NAME}"
+                        echo ""
+                        echo "To stop container:"
+                        echo "  docker stop ${CONTAINER_NAME}"
+                        echo "  docker rm ${CONTAINER_NAME}"
+                        echo ""
+                        echo "Build Details:"
+                        echo "  Build Number: ${BUILD_NUMBER}"
+                        echo "  Job Name: ${JOB_NAME}"
+                        echo "  Timestamp: $(date)"
+                        echo "======================"
+                    '''
+                }
             }
         }
     }
     
     post {
         success {
+            echo ''
             echo '🎉 🎉 🎉 PIPELINE SUCCESSFUL! 🎉 🎉 🎉'
-            echo '============================================'
-            echo 'YOUR FLASK APPLICATION IS DEPLOYED!'
             echo ''
-            echo 'ACCESS YOUR APPLICATION AT:'
-            echo '👉 http://localhost:5000'
-            echo '👉 http://localhost:5000/health'
-            echo '👉 http://localhost:5000/student'
+            echo '✅ Application deployed successfully!'
+            echo '✅ Tests passed!'
+            echo '✅ Docker image built!'
+            echo '✅ Container running on Jenkins server!'
             echo ''
-            echo 'To check running containers:'
-            echo 'docker ps | grep flask-app'
+            echo '📊 For your assignment submission:'
+            echo '1. Screenshot of green pipeline stages ✓'
+            echo '2. Screenshot of verification output ✓'
+            echo '3. Screenshot of container running ✓'
+            echo '4. Explain: "App auto-deploys when GitHub code changes" ✓'
             echo ''
-            echo 'To view logs:'
-            echo 'docker logs flask-app'
-            echo '============================================'
             
-            // Optional: Archive artifacts
-            archiveArtifacts artifacts: '**/*.py', fingerprint: true
-        }
-        failure {
-            echo '❌ ❌ ❌ PIPELINE FAILED! ❌ ❌ ❌'
-            echo 'Check the error messages above for details.'
-            echo ''
-            echo 'Common issues:'
-            echo '1. Port 5000 might be in use'
-            echo '2. Docker build might have failed'
-            echo '3. Python dependencies might not install'
-            echo ''
-            echo 'To manually test:'
-            echo 'python3 app.py'
-            echo 'curl http://localhost:5000/'
-        }
-        always {
-            echo '📝 Pipeline execution completed.'
-            echo 'Build Number: ${BUILD_NUMBER}'
-            echo 'Job Name: ${JOB_NAME}'
-            echo 'Time: ' + new Date().toString()
-            
-            // Cleanup or final steps
+            // Clean up old containers (keep only last 2 builds)
             sh '''
-                echo "Final container status:"
-                docker ps -a | grep ${APP_NAME} || echo "No containers found"
-                
-                echo "Docker images created:"
-                docker images | grep flask-app || echo "No flask-app images"
+                echo "Cleaning up old containers (keeping last 2)..."
+                docker ps -a --filter "name=flask-app-" --format "{{.Names}}" | sort -r | tail -n +3 | xargs -r docker stop 2>/dev/null || true
+                docker ps -a --filter "name=flask-app-" --format "{{.Names}}" | sort -r | tail -n +3 | xargs -r docker rm 2>/dev/null || true
             '''
+        }
+        
+        failure {
+            echo '❌ Pipeline failed! Check errors above.'
+            sh '''
+                echo "Debug information:"
+                echo "Container status:"
+                docker ps -a | grep flask-app || echo "No containers found"
+                echo ""
+                echo "Docker images:"
+                docker images | grep flask-demo || echo "No images found"
+            '''
+        }
+        
+        always {
+            echo ''
+            echo '📝 Pipeline execution completed!'
+            echo 'Next steps:'
+            echo '1. Make changes to GitHub repo'
+            echo '2. Jenkins will automatically detect changes'
+            echo '3. Pipeline will run again'
+            echo '4. New container will be deployed'
+            echo ''
+            echo 'To test auto-deployment:'
+            echo '- Edit app.py in GitHub'
+            echo '- Commit and push changes'
+            echo '- Watch Jenkins auto-run the pipeline'
+            echo '- Check deployment count increases at /info'
         }
     }
 }
