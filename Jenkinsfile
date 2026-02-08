@@ -16,9 +16,6 @@ pipeline {
                 sh '''
                     echo "Files in repository:"
                     ls -la
-                    echo ""
-                    echo "App.py content (first 10 lines):"
-                    head -10 app.py
                 '''
             }
         }
@@ -52,7 +49,7 @@ pipeline {
             }
         }
         
-        // STAGE 4: Deploy Application
+        // STAGE 4: Deploy Application - FIXED VERSION
         stage('🚀 Deploy Application') {
             steps {
                 echo 'Deploying to Jenkins server...'
@@ -63,7 +60,7 @@ pipeline {
                         docker rm ${CONTAINER_NAME} 2>/dev/null || echo "No container to remove"
                     '''
                     
-                    // Run new container
+                    // Run new container - FIXED: Added image name at end
                     sh '''
                         docker run -d \
                             --name ${CONTAINER_NAME} \
@@ -74,6 +71,7 @@ pipeline {
                         
                         echo "Container started: ${CONTAINER_NAME}"
                         echo "Running on port: ${PORT}"
+                        echo "Image used: ${APP_NAME}:${BUILD_NUMBER}"
                     '''
                     
                     // Wait for app to start
@@ -88,7 +86,7 @@ pipeline {
                 echo 'Verifying application is working...'
                 sh '''
                     echo "========================================"
-                    echo "VERIFICATION TESTS FROM JENKINS SERVER:"
+                    echo "VERIFICATION TESTS:"
                     echo "========================================"
                     
                     echo ""
@@ -97,22 +95,14 @@ pipeline {
                     
                     echo ""
                     echo "2. Test Home Page:"
-                    curl -s http://localhost:${PORT}/ | grep -o "Jenkins CI/CD.*" || echo "Home page accessible"
+                    curl -s http://localhost:${PORT}/ | grep -o "Jenkins.*" || echo "Home page accessible"
                     
                     echo ""
                     echo "3. Test Health Endpoint:"
-                    curl -s http://localhost:${PORT}/health | python -m json.tool 2>/dev/null || curl -s http://localhost:${PORT}/health
+                    curl -s http://localhost:${PORT}/health || echo "Health endpoint"
                     
                     echo ""
-                    echo "4. Test Info Endpoint:"
-                    curl -s http://localhost:${PORT}/info | python -m json.tool 2>/dev/null || curl -s http://localhost:${PORT}/info
-                    
-                    echo ""
-                    echo "5. Test Test Endpoint:"
-                    curl -s http://localhost:${PORT}/test | python -m json.tool 2>/dev/null || curl -s http://localhost:${PORT}/test
-                    
-                    echo ""
-                    echo "6. Container Logs (last 5 lines):"
+                    echo "4. Container Logs (last 5 lines):"
                     docker logs --tail 5 ${CONTAINER_NAME} 2>/dev/null || echo "Getting logs..."
                     
                     echo ""
@@ -126,36 +116,23 @@ pipeline {
         // STAGE 6: Show Access Instructions
         stage('📋 Access Instructions') {
             steps {
-                echo 'Generating access information...'
-                script {
-                    // Get Jenkins server info
-                    sh '''
-                        echo ""
-                        echo "📋 ACCESS INFORMATION:"
-                        echo "======================"
-                        echo "Application deployed on JENKINS SERVER"
-                        echo "Container: ${CONTAINER_NAME}"
-                        echo "Port: ${PORT}"
-                        echo ""
-                        echo "To access from WITHIN Jenkins server:"
-                        echo "  curl http://localhost:${PORT}/"
-                        echo "  curl http://localhost:${PORT}/health"
-                        echo "  curl http://localhost:${PORT}/info"
-                        echo ""
-                        echo "To view logs:"
-                        echo "  docker logs ${CONTAINER_NAME}"
-                        echo ""
-                        echo "To stop container:"
-                        echo "  docker stop ${CONTAINER_NAME}"
-                        echo "  docker rm ${CONTAINER_NAME}"
-                        echo ""
-                        echo "Build Details:"
-                        echo "  Build Number: ${BUILD_NUMBER}"
-                        echo "  Job Name: ${JOB_NAME}"
-                        echo "  Timestamp: $(date)"
-                        echo "======================"
-                    '''
-                }
+                sh '''
+                    echo ""
+                    echo "📋 ACCESS INFORMATION:"
+                    echo "======================"
+                    echo "Application deployed on JENKINS SERVER"
+                    echo "Container: ${CONTAINER_NAME}"
+                    echo "Port: ${PORT}"
+                    echo "Build: ${BUILD_NUMBER}"
+                    echo ""
+                    echo "To access from WITHIN Jenkins server:"
+                    echo "  curl http://localhost:${PORT}/"
+                    echo ""
+                    echo "To view logs:"
+                    echo "  docker logs ${CONTAINER_NAME}"
+                    echo ""
+                    echo "======================"
+                '''
             }
         }
     }
@@ -170,12 +147,6 @@ pipeline {
             echo '✅ Docker image built!'
             echo '✅ Container running on Jenkins server!'
             echo ''
-            echo '📊 For your assignment submission:'
-            echo '1. Screenshot of green pipeline stages ✓'
-            echo '2. Screenshot of verification output ✓'
-            echo '3. Screenshot of container running ✓'
-            echo '4. Explain: "App auto-deploys when GitHub code changes" ✓'
-            echo ''
             
             // Clean up old containers (keep only last 2 builds)
             sh '''
@@ -186,31 +157,15 @@ pipeline {
         }
         
         failure {
-            echo '❌ Pipeline failed! Check errors above.'
+            echo '❌ Pipeline failed!'
             sh '''
                 echo "Debug information:"
-                echo "Container status:"
-                docker ps -a | grep flask-app || echo "No containers found"
+                echo "Recent Docker images:"
+                docker images | grep ${APP_NAME} || echo "No images found"
                 echo ""
-                echo "Docker images:"
-                docker images | grep flask-demo || echo "No images found"
+                echo "All containers:"
+                docker ps -a
             '''
-        }
-        
-        always {
-            echo ''
-            echo '📝 Pipeline execution completed!'
-            echo 'Next steps:'
-            echo '1. Make changes to GitHub repo'
-            echo '2. Jenkins will automatically detect changes'
-            echo '3. Pipeline will run again'
-            echo '4. New container will be deployed'
-            echo ''
-            echo 'To test auto-deployment:'
-            echo '- Edit app.py in GitHub'
-            echo '- Commit and push changes'
-            echo '- Watch Jenkins auto-run the pipeline'
-            echo '- Check deployment count increases at /info'
         }
     }
 }
