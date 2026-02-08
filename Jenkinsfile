@@ -34,16 +34,17 @@ pipeline {
             steps {
                 sh '''
                 echo "Stopping old Flask/Gunicorn process (if any)..."
-                pkill -f "gunicorn.*app:app" || true
+                pkill -f gunicorn || true
 
                 echo "Starting Flask app via Gunicorn..."
-                nohup gunicorn \
-                  --bind 0.0.0.0:${APP_PORT} \
-                  --workers 2 \
-                  app:app \
-                  > app.log 2>&1 &
+                nohup python3 -m gunicorn \
+                --bind 0.0.0.0:${APP_PORT} \
+                --workers 2 \
+                app:app \
+                > app.log 2>&1 &
 
                 sleep 5
+                echo "Running gunicorn processes:"
                 ps -ef | grep gunicorn | grep -v grep
                 '''
             }
