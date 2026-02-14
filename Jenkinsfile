@@ -45,14 +45,12 @@ pipeline {
 
                     # Copy project files to deployment directory
                     sudo cp -r * $APP_DIR/
+                    sudo chown -R jenkins:jenkins /home/ubuntu/flask-app
 
                     cd $APP_DIR
 
                     # Stop existing application if running
                     sudo pkill -f app.py || true
-
-                    # Ensure dependencies are installed
-                    sudo pip3 install -r requirements.txt
 
                     # Start application in background
                     sudo nohup setsid python3 app.py > output.log 2>&1 < /dev/null &
