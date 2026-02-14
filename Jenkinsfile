@@ -1,23 +1,27 @@
 pipeline {
-    agent { label 'ec2' }
+    agent any
 
     environment {
-        APP_PORT = 5000
+        EC2_HOST = "13.200.3.136"
+        EC2_USER = "ec2-user"
+        APP_DIR  = "/home/ec2-user/flask-app"
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                checkout scm
+                git 'https://github.com/bharathrm555/Jenkins_HVRD.git'
             }
         }
 
         stage('Build') {
             steps {
                 sh '''
-                python3 -m pip install --upgrade pip
-                pip3 install -r requirements.txt
+                python3 -m venv venv
+                source venv/bin/activate
+                pip install --upgrade pip
+                pip install -r requirements.txt
                 '''
             }
         }
@@ -25,38 +29,42 @@ pipeline {
         stage('Test') {
             steps {
                 sh '''
-                python3 -m pytest -v
+                source venv/bin/activate
+                pytest
                 '''
             }
         }
 
         stage('Deploy') {
             steps {
-                sh '''
-                echo "Stopping old Flask/Gunicorn process (if any)..."
-                pkill -f gunicorn || true
+                sshagent(['ec2-ssh-key']) {
+                    sh '''
+                    scp -o StrictHostKeyChecking=no -r * ${EC2_USER}@${EC2_HOST}:${APP_DIR}
 
-                echo "Starting Flask app via Gunicorn..."
-                nohup python3 -m gunicorn \
-                --bind 0.0.0.0:${APP_PORT} \
-                --workers 2 \
-                app:app \
-                > app.log 2>&1 &
-
-                sleep 5
-                echo "Running gunicorn processes:"
-                ps -ef | grep gunicorn | grep -v grep
-                '''
+                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << EOF
+                        cd ${APP_DIR}
+                        pkill -f app.py || true
+                        python3 -m venv venv
+                        source venv/bin/activate
+                        pip install -r requirements.txt
+                        nohup python3 app.py > output.log 2>&1 &
+                    EOF
+                    '''
+                }
             }
         }
     }
 
     post {
         success {
-            echo "Deployment successful 🚀"
+            mail to: 'bharathrm555@gmail.com',
+                 subject: "SUCCESS: Jenkins Build ${BUILD_NUMBER}",
+                 body: "Deployment successful!"
         }
         failure {
-            echo "Deployment failed ❌"
+            mail to: 'bharathrm555@gmail.com',
+                 subject: "FAILED: Jenkins Build ${BUILD_NUMBER}",
+                 body: "Build failed. Please check Jenkins."
         }
     }
 }
