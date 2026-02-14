@@ -11,7 +11,7 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                git 'https://github.com/bharathrm555/Jenkins_HVRD.git'
+                checkout scm
             }
         }
 
