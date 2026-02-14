@@ -30,7 +30,7 @@ pipeline {
             steps {
                 sh '''
                     echo "Running tests..."
-                    pytest
+                    python3 -m pytest
                 '''
             }
         }
@@ -41,21 +41,21 @@ pipeline {
                     echo "Deploying application..."
 
                     # Create application directory if it doesn't exist
-                    mkdir -p $APP_DIR
+                    sudo mkdir -p $APP_DIR
 
                     # Copy project files to deployment directory
-                    cp -r * $APP_DIR/
+                    sudo cp -r * $APP_DIR/
 
                     cd $APP_DIR
 
                     # Stop existing application if running
-                    pkill -f app.py || true
+                    sudo pkill -f app.py || true
 
                     # Ensure dependencies are installed
-                    pip3 install -r requirements.txt
+                    sudo pip3 install -r requirements.txt
 
                     # Start application in background
-                    nohup python3 app.py > output.log 2>&1 &
+                    sudo nohup python3 app.py > output.log 2>&1 &
                 '''
             }
         }
