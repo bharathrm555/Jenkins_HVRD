@@ -1,64 +1,64 @@
 pipeline {
-    agent any
+    agent {
+        label 'ec2'
+    }
 
     environment {
-        EC2_HOST = "13.200.3.136"
-        EC2_USER = "ec2-user"
-        APP_DIR  = "/home/ec2-user/flask-app"
+        APP_DIR = "/home/ubuntu/flask-app"
+        VENV    = "/home/ubuntu/venv"
     }
 
     stages {
 
-        stage('Checkout') {
+        stage('Checkout SCM') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Deploy & Test on EC2') {
+        stage('Setup Python Environment') {
             steps {
-                sshagent(['ec2-ssh-key']) {
-                    sh '''
-                    # Copy latest code to EC2
-                    scp -o StrictHostKeyChecking=no -r ./* ${EC2_USER}@${EC2_HOST}:${APP_DIR}
+                sh '''
+                    python3 -m venv $VENV
+                    source $VENV/bin/activate
+                    pip install --upgrade pip
+                    pip install -r requirements.txt
+                '''
+            }
+        }
 
-                    # Run everything on EC2
-                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << EOF
-                        cd ${APP_DIR}
+        stage('Run Tests') {
+            steps {
+                sh '''
+                    source $VENV/bin/activate
+                    pytest
+                '''
+            }
+        }
 
-                        echo "Installing dependencies..."
-                        pip3 install -r requirements.txt
+        stage('Deploy') {
+            steps {
+                sh '''
+                    mkdir -p $APP_DIR
+                    cp -r * $APP_DIR/
 
-                        echo "Running tests..."
-                        pytest
+                    cd $APP_DIR
+                    source $VENV/bin/activate
 
-                        if [ $? -ne 0 ]; then
-                            echo "Tests failed. Stopping deployment."
-                            exit 1
-                        fi
+                    pkill -f app.py || true
 
-                        echo "Stopping old app..."
-                        pkill -f app.py || true
-
-                        echo "Starting app..."
-                        nohup python3 app.py > output.log 2>&1 &
-                    EOF
-                    '''
-                }
+                    nohup python3 app.py > output.log 2>&1 &
+                '''
             }
         }
     }
 
     post {
         success {
-            mail to: 'bharathrm555@gmail.com',
-                 subject: "SUCCESS: Jenkins Build ${BUILD_NUMBER}",
-                 body: "Deployment successful!"
+            echo "Deployment Successful!"
         }
         failure {
-            mail to: 'bharathrm555@gmail.com',
-                 subject: "FAILED: Jenkins Build ${BUILD_NUMBER}",
-                 body: "Build failed. Please check Jenkins."
+            echo "Build Failed!"
         }
     }
 }
