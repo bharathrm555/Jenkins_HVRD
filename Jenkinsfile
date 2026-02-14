@@ -15,13 +15,10 @@ pipeline {
             }
         }
 
-        stage('Build') {
+        stage('Install Dependencies') {
             steps {
                 sh '''
-                python3 -m venv venv
-                source venv/bin/activate
-                pip install --upgrade pip
-                pip install -r requirements.txt
+                pip3 install -r requirements.txt
                 '''
             }
         }
@@ -29,24 +26,21 @@ pipeline {
         stage('Test') {
             steps {
                 sh '''
-                source venv/bin/activate
                 pytest
                 '''
             }
         }
 
-        stage('Deploy') {
+        stage('Deploy to EC2') {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
-                    scp -o StrictHostKeyChecking=no -r * ${EC2_USER}@${EC2_HOST}:${APP_DIR}
+                    scp -o StrictHostKeyChecking=no -r ./* ${EC2_USER}@${EC2_HOST}:${APP_DIR}
 
                     ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << EOF
                         cd ${APP_DIR}
                         pkill -f app.py || true
-                        python3 -m venv venv
-                        source venv/bin/activate
-                        pip install -r requirements.txt
+                        pip3 install -r requirements.txt
                         nohup python3 app.py > output.log 2>&1 &
                     EOF
                     '''
