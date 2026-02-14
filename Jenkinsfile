@@ -45,7 +45,7 @@ pipeline {
 
                     # Copy project files to deployment directory
                     sudo cp -r * $APP_DIR/
-                    sudo chown -R jenkins:jenkins /home/ubuntu/flask-app
+                    sudo chown -R ubuntu:ubuntu /home/ubuntu/flask-app
 
                     cd $APP_DIR
 
