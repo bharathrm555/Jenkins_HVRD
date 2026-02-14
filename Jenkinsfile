@@ -55,7 +55,10 @@ pipeline {
                     sudo pip3 install -r requirements.txt
 
                     # Start application in background
-                    sudo nohup python3 app.py > output.log 2>&1 &
+                    sudo nohup setsid python3 app.py > output.log 2>&1 < /dev/null &
+
+                    echo "Checking if app started..."
+                    ps aux | grep app.py | grep -v grep
                 '''
             }
         }
